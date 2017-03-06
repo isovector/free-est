@@ -22,7 +22,7 @@ A minimal version of FTCQueue from "Reflection w/o Remorse":
 
 -}
 module Data.FTCQueue (
-  FTCQueue,
+  FTCQueue (..),
   tsingleton,
   (|>),
   snoc,
