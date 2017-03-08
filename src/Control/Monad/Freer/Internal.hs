@@ -46,6 +46,9 @@ module Control.Monad.Freer.Internal (
   tsingleton,
   extract,
 
+  raise,
+  raiseFTC,
+
   qApp,
   qComp,
   send,
@@ -53,6 +56,8 @@ module Control.Monad.Freer.Internal (
   runM,
   handleRelay,
   handleRelayS,
+  replaceRelay,
+  replaceRelayS,
   interpose,
 ) where
 
@@ -60,6 +65,7 @@ import Control.Monad
 import Control.Applicative
 import Data.Open.Union
 import Data.FTCQueue
+import Data.Open.Union.Internal
 
 
 -- |
@@ -157,6 +163,42 @@ handleRelay ret h = loop
     Left  u -> E u (tsingleton k)
    where k = qComp q loop
 
+
+
+replaceRelayS :: (r ~ (Head r ': Tail r))
+             => s
+             -> (s -> a -> Eff (v ': r) w)
+             -> (forall x. s
+                        -> t x
+                        -> (s -> Arr (v ': r) x w)
+                        -> Eff (v ': r) w)
+             -> Eff (t ': r) a
+             -> Eff (v ': r) w
+replaceRelayS s' pure' bind = loop s'
+ where
+  loop s (Val x)  = pure' s x
+  loop s (E u' q)  = case decomp u' of
+    Right x -> bind s x k
+    Left  u -> E (weaken u) (tsingleton (k s))
+   where k s'' x = loop s'' $ qApp q x
+
+
+
+replaceRelay :: (r ~ (Head r ': Tail r))
+             => (a -> Eff (s ': r) w)
+             -> (forall v. t v
+                        -> Arr (s ': r) v w
+                        -> Eff (s ': r) w)
+             -> Eff (t ': r) a
+             -> Eff (s ': r) w
+replaceRelay pure' bind = loop
+ where
+  loop (Val x)  = pure' x
+  loop (E u' q)  = case decomp u' of
+    Right x -> bind x k
+    Left  u -> E (weaken u) (tsingleton k)
+   where k = qComp q loop
+
 -- | Parameterized 'handleRelay'
 -- Allows sending along some state to be handled for the target
 -- effect, or relayed to a handler that can handle the target effect.
@@ -184,6 +226,18 @@ interpose ret h = loop
      Just x -> h x k
      _      -> E u (tsingleton k)
     where k = qComp q loop
+
+raise :: (r ~ (Head r ': Tail r))
+      => Eff r a
+      -> Eff (s ': r) a
+raise (Val a) = Val a
+raise (E u ftc) = E (weaken u) $ raiseFTC ftc
+
+raiseFTC :: (r ~ (Head r ': Tail r))
+         => FTCQueue (Eff r) a b
+         -> FTCQueue (Eff (s ': r)) a b
+raiseFTC (Leaf f) = Leaf $ fmap raise f
+raiseFTC (Node a b) = Node (raiseFTC a) (raiseFTC b)
 
 --------------------------------------------------------------------------------
                     -- Nondeterministic Choice --
